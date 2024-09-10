@@ -3,6 +3,19 @@ import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { mailtrap } from "../mailtrap/mailtrap.config.js";
 
+function generateTokenandSetCookies(res, userId) {
+  const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
+    expiresIn: "7d",
+  });
+  res.cookie("jwt", token, {
+    httpOnly: true, //This prvents xss attack it cannot be used by js.
+    secure: (process.env.Node_ENV = "production"),
+    sameSite: "strict", //csrf
+    maxAge: 7 * 24 * 60 * 60 * 10000, //7 days
+  });
+  return token;
+}
+
 export const signup = async (req, res) => {
   const { email, name, password } = req.body;
   try {
@@ -12,7 +25,7 @@ export const signup = async (req, res) => {
       });
     }
 
-    const userAlredyExits = await User.findOne({ email });
+    const userAlredyExits = await User.findOne({ email }); // here value will be true and false but if user is presnd in the database or not
     console.log(userAlredyExits);
     if (userAlredyExits) {
       res.status(400).json({
@@ -39,18 +52,6 @@ export const signup = async (req, res) => {
     // await mailtrap(user.email, verificationToken); // sending mail after sucessfully saved the user
 
     //jwt
-    function generateTokenandSetCookies(res, userId) {
-      const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-      });
-      res.cookie("jwt", token, {
-        httpOnly: true, //This prvents xss attack it cannot be used by js.
-        secure: (process.env.Node_ENV = "production"),
-        sameSite: "strict", //csrf
-        maxAge: 7 * 24 * 60 * 60 * 10000, //7 days
-      });
-      return token;
-    }
 
     generateTokenandSetCookies(res, user._id);
     await mailtrap(user.email, verificationToken); // sending mail after sucessfully saved the user
@@ -105,6 +106,7 @@ export const login = async (req, res) => {
   const user = await User.findOne({
     email: mail,
   });
+  console.log(user);
   if (!user.isverifyed) {
     return res.status(404).json({
       msg: "verify your mail before login",
@@ -122,13 +124,43 @@ export const login = async (req, res) => {
       msg: "invalid  password",
     });
   }
+  generateTokenandSetCookies(res, user._id);
+  user.lastlogin = Date.now();
+  await user.save();
   res.status(200).json({
     msg: "logged in successfully",
   });
 };
 
 export const logout = async (req, res) => {
-  res.send("logout route ");
+  res.clearCookie("token");
+  res.status(200).json({
+    msg: "Succesfully logged out",
+  });
+};
+
+export const passforgot = async (req, res) => {
+  const { mail, username } = req.body;
+  const user = await User.findOne({ email: mail });
+  if (username == user.name) {
+    const { newPass } = req.body; //intresting its not taking from headers??/ why
+    const hashedPassword = await bcryptjs.hash(newPass, 10); // 10 i see
+
+    user.password = hashedPassword;
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      msg: "your password successfully changed",
+      user: {
+        ...user._doc,
+      },
+    });
+  } else {
+    res.status(411).json({
+      msg: "user not found",
+    });
+  }
 };
 
 //42:00
