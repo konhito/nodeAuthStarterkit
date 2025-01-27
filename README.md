@@ -1,1 +1,1 @@
-# AUTH
+nodeAuthStarterKit
